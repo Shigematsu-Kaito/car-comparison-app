@@ -1,0 +1,540 @@
+# 中古車比較Webアプリケーション 実装計画書
+
+## 概要
+
+カーセンサー、Goo-net、ガリバーの3社から中古車情報を収集し、ユーザーが比較・検討できるWebアプリケーションを構築します。気になった車をデータベースに保存し、検討リストとして管理する機能も実装します。
+
+### 技術スタック
+- **フロントエンド**: React (Vite) + Tailwind CSS + Shadcn UI
+- **バックエンド**: Python (FastAPI)
+- **データベース**: Supabase (PostgreSQL)
+- **スクレイピング**: Playwright (Python版)
+- **バージョン管理**: Git/GitHub
+
+## ユーザーレビューが必要な項目
+
+> [!IMPORTANT]
+> **スクレイピングに関する法的・倫理的配慮**
+> 
+> 本アプリケーションは3つの中古車情報サイトをスクレイピングする設計となっています。実装前に以下の点を確認してください：
+> 
+> 1. **利用規約の確認**: 各サイト（カーセンサー、Goo-net、ガリバー）の利用規約でスクレイピングが禁止されていないか確認が必要です
+> 2. **robots.txt の遵守**: 各サイトのrobots.txtを確認し、アクセス制限を遵守します
+> 3. **アクセス頻度の制限**: サーバーに負荷をかけないよう、適切な待機時間を設けます（推奨：リクエスト間に2-5秒）
+> 4. **API の有無**: 公式APIが提供されている場合はそちらの利用を優先すべきです
+> 5. **商用利用の可否**: 商用目的での使用を想定している場合、各サイトへの事前確認が必要な場合があります
+
+> [!WARNING]
+> **免責事項の必要性**
+> 
+> アプリケーションに「データは各サイトから自動取得したものであり、正確性を保証しません」といった免責事項の表示が必要です。
+
+---
+
+## プロジェクトディレクトリ構成
+
+以下のようなモノレポ構成を提案します：
+
+\`\`\`
+used-car-comparison/
+├── .git/
+├── .gitignore
+├── README.md
+├── docker-compose.yml          # ローカル開発用（オプション）
+│
+├── backend/                    # FastAPI バックエンド
+│   ├── .env                    # 環境変数（Supabase接続情報など）
+│   ├── .env.example
+│   ├── requirements.txt
+│   ├── Dockerfile              # デプロイ用
+│   ├── main.py                 # FastAPIエントリーポイント
+│   ├── app/
+│   │   ├── __init__.py
+│   │   ├── api/
+│   │   │   ├── __init__.py
+│   │   │   ├── routes/
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── search.py      # 検索エンドポイント
+│   │   │   │   └── watchlist.py   # 検討リスト CRUD
+│   │   │   └── dependencies.py
+│   │   ├── core/
+│   │   │   ├── __init__.py
+│   │   │   ├── config.py          # 設定管理
+│   │   │   └── database.py        # Supabase接続
+│   │   ├── models/
+│   │   │   ├── __init__.py
+│   │   │   └── car.py             # Pydanticモデル
+│   │   ├── scrapers/
+│   │   │   ├── __init__.py
+│   │   │   ├── base.py            # 基底スクレイパークラス
+│   │   │   ├── carsensor.py       # カーセンサー
+│   │   │   ├── goonet.py          # Goo-net
+│   │   │   ├── gulliver.py        # ガリバー
+│   │   │   └── utils.py           # 共通ユーティリティ
+│   │   └── services/
+│   │       ├── __init__.py
+│   │       ├── car_service.py     # ビジネスロジック
+│   │       └── scraping_service.py
+│   └── tests/
+│       ├── __init__.py
+│       └── test_scrapers.py
+│
+├── frontend/                   # React フロントエンド
+│   ├── .env
+│   ├── .env.example
+│   ├── package.json
+│   ├── vite.config.js
+│   ├── tailwind.config.js
+│   ├── index.html
+│   ├── src/
+│   │   ├── main.jsx
+│   │   ├── App.jsx
+│   │   ├── components/
+│   │   │   ├── ui/                # Shadcn UIコンポーネント
+│   │   │   ├── SearchForm.jsx     # 検索フォーム
+│   │   │   ├── CarCard.jsx        # 車情報カード
+│   │   │   ├── ComparisonGrid.jsx # 比較表示
+│   │   │   └── WatchList.jsx      # 検討リスト
+│   │   ├── hooks/
+│   │   │   ├── useCarSearch.js
+│   │   │   └── useWatchList.js
+│   │   ├── services/
+│   │   │   └── api.js             # APIクライアント
+│   │   ├── lib/
+│   │   │   └── utils.js
+│   │   └── styles/
+│   │       └── globals.css
+│   └── public/
+│
+├── database/                   # DB関連
+│   ├── schema.sql              # テーブル定義
+│   └── migrations/             # マイグレーションスクリプト
+│
+└── docs/                       # ドキュメント
+    ├── api_spec.md
+    └── deployment.md
+\`\`\`
+
+---
+
+## データベース設計
+
+### テーブル: \`watchlist\` (検討リスト)
+
+Supabaseで以下のテーブルを作成します：
+
+\`\`\`sql
+-- 検討リスト用テーブル
+CREATE TABLE IF NOT EXISTS watchlist (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    
+    -- 車両基本情報
+    car_name VARCHAR(255) NOT NULL,              -- 車種名（例: トヨタ プリウス）
+    model_year INTEGER,                          -- 年式
+    mileage INTEGER,                             -- 走行距離（km）
+    price INTEGER NOT NULL,                      -- 価格（円）
+    
+    -- 販売店情報
+    dealer_name VARCHAR(255),                    -- 販売店名
+    dealer_location VARCHAR(255),                -- 販売店所在地
+    
+    -- メディア情報
+    image_url TEXT,                              -- 車両画像URL
+    source_url TEXT NOT NULL,                    -- 元のページURL
+    source_site VARCHAR(50) NOT NULL,            -- 取得元（'carsensor', 'goonet', 'gulliver'）
+    
+    -- 追加詳細情報（JSON形式で柔軟に保存）
+    additional_info JSONB,                       -- 車検、修復歴、装備など
+    
+    -- メタデータ
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    
+    -- ユーザーメモ
+    user_note TEXT,                              -- ユーザーが追加するメモ
+    
+    -- インデックス
+    CONSTRAINT chk_source_site CHECK (source_site IN ('carsensor', 'goonet', 'gulliver'))
+);
+
+-- インデックス作成
+CREATE INDEX idx_watchlist_source_site ON watchlist(source_site);
+CREATE INDEX idx_watchlist_price ON watchlist(price);
+CREATE INDEX idx_watchlist_created_at ON watchlist(created_at DESC);
+
+-- 更新日時の自動更新トリガー
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER update_watchlist_updated_at
+    BEFORE UPDATE ON watchlist
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+\`\`\`
+
+### テーブル設計の補足
+
+- **UUID主キー**: 分散環境でも衝突しないユニークなIDを生成
+- **JSONB型**: 各サイト固有の情報（車検、修復歴、オプション装備など）を柔軟に保存
+- **CHECK制約**: source_siteは3つの値のみを許可
+- **インデックス**: 検索頻度の高いカラムに作成し、パフォーマンスを向上
+
+---
+
+## スクレイピング設計
+
+### 基本戦略
+
+各サイトごとに専用のスクレイパークラスを実装し、共通インターフェースを通じてデータを正規化します。
+
+### アーキテクチャ
+
+\`\`\`python
+# 基底クラス（backend/app/scrapers/base.py）
+from abc import ABC, abstractmethod
+from typing import List, Dict
+from playwright.async_api import async_playwright
+
+class BaseScraper(ABC):
+    \"\"\"全スクレイパーの基底クラス\"\"\"
+    
+    def __init__(self):
+        self.base_url = ""
+        self.wait_time = 3  # アンチスクレイピング対策: リクエスト間隔（秒）
+        
+    @abstractmethod
+    async def search(self, query: str, max_results: int = 20) -> List[Dict]:
+        \"\"\"検索を実行し、正規化されたデータを返す\"\"\"
+        pass
+    
+    @abstractmethod
+    async def _parse_car_item(self, element) -> Dict:
+        \"\"\"個別の車情報をパース\"\"\"
+        pass
+    
+    def _normalize_data(self, raw_data: Dict) -> Dict:
+        \"\"\"データを共通フォーマットに正規化\"\"\"
+        return {
+            'car_name': raw_data.get('name', ''),
+            'model_year': self._parse_year(raw_data.get('year')),
+            'mileage': self._parse_mileage(raw_data.get('mileage')),
+            'price': self._parse_price(raw_data.get('price')),
+            'dealer_name': raw_data.get('dealer', ''),
+            'dealer_location': raw_data.get('location', ''),
+            'image_url': raw_data.get('image', ''),
+            'source_url': raw_data.get('url', ''),
+            'source_site': self.__class__.__name__.lower().replace('scraper', ''),
+            'additional_info': raw_data.get('details', {})
+        }
+\`\`\`
+
+### 各サイト別の実装方針
+
+#### 1. カーセンサー（carsensor.py）
+
+\`\`\`python
+class CarSensorScraper(BaseScraper):
+    def __init__(self):
+        super().__init__()
+        self.base_url = "https://www.carsensor.net"
+    
+    async def search(self, query: str, max_results: int = 20):
+        # Playwrightでページアクセス
+        # セレクタで車両リストを取得
+        # 各アイテムをパース
+        pass
+\`\`\`
+
+**主要セレクタ候補**:
+- 検索結果リスト: `.cassetteMain` や `.catalogBox`
+- 車種名: `.catalogTitle` や `.carName`
+- 価格: `.priceArea` や `.price`
+
+#### 2. Goo-net（goonet.py）
+
+\`\`\`python
+class GoonetScraper(BaseScraper):
+    def __init__(self):
+        super().__init__()
+        self.base_url = "https://www.goo-net.com"
+    
+    async def search(self, query: str, max_results: int = 20):
+        # 同様にPlaywrightで実装
+        pass
+\`\`\`
+
+#### 3. ガリバー（gulliver.py）
+
+\`\`\`python
+class GulliverScraper(BaseScraper):
+    def __init__(self):
+        super().__init__()
+        self.base_url = "https://www.gulliver.com" # または idom.jp
+    
+    async def search(self, query: str, max_results: int = 20):
+        # 同様に実装
+        pass
+\`\`\`
+
+### アンチスクレイピング対策
+
+1. **User-Agent設定**: 実際のブラウザーを模倣
+   \`\`\`python
+   user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+   \`\`\`
+
+2. **待機時間**: リクエスト間に2-5秒のランダムな遅延を挿入
+
+3. **Headlessモード**: Playwrightをheadlessモードで実行（必要に応じてheadful）
+
+4. **リトライロジック**: タイムアウトやエラー時の再試行
+
+5. **レート制限**: 同時リクエスト数を制限
+
+### データ正規化フロー
+
+\`\`\`mermaid
+graph LR
+    A[ユーザー検索] --> B[3つのスクレイパー並行実行]
+    B --> C[カーセンサー]
+    B --> D[Goo-net]
+    B --> E[ガリバー]
+    C --> F[正規化]
+    D --> F
+    E --> F
+    F --> G[統合結果を返却]
+\`\`\`
+
+### 正規化ルール
+
+各サイトから取得したデータを以下の共通フォーマットに変換：
+
+| フィールド | 型 | 説明 | 正規化ルール |
+|----------|-----|------|------------|
+| car_name | string | 車種名 | "メーカー名 モデル名" 形式に統一 |
+| model_year | integer | 年式 | "2020年" → 2020 に変換 |
+| mileage | integer | 走行距離 | "5.2万km" → 52000 に変換 |
+| price | integer | 価格 | "198万円" → 1980000 に変換 |
+| dealer_name | string | 販売店名 | そのまま保持 |
+| image_url | string | 画像URL | 絶対URLに変換 |
+| source_url | string | 詳細ページURL | 絶対URLに変換 |
+| source_site | enum | 取得元サイト | 'carsensor' / 'goonet' / 'gulliver' |
+
+---
+
+## 提案する変更内容
+
+### バックエンド
+
+#### [NEW] [requirements.txt](file:///c:/Users/81802/test/used-car-comparison/backend/requirements.txt)
+
+依存パッケージのリスト：
+
+\`\`\`
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+pydantic==2.5.3
+pydantic-settings==2.1.0
+supabase==2.3.0
+playwright==1.40.0
+python-dotenv==1.0.0
+httpx==0.26.0
+\`\`\`
+
+#### [NEW] [main.py](file:///c:/Users/81802/test/used-car-comparison/backend/main.py)
+
+FastAPIアプリケーションのエントリーポイント
+
+#### [NEW] [app/core/config.py](file:///c:/Users/81802/test/used-car-comparison/backend/app/core/config.py)
+
+環境変数からSupabase接続情報などを読み込む設定管理
+
+#### [NEW] [app/core/database.py](file:///c:/Users/81802/test/used-car-comparison/backend/app/core/database.py)
+
+Supabaseクライアントの初期化
+
+#### [NEW] [app/models/car.py](file:///c:/Users/81802/test/used-car-comparison/backend/app/models/car.py)
+
+Pydanticモデル定義（リクエスト/レスポンス）
+
+#### [NEW] [app/scrapers/base.py](file:///c:/Users/81802/test/used-car-comparison/backend/app/scrapers/base.py)
+
+スクレイパー基底クラス
+
+#### [NEW] [app/scrapers/carsensor.py](file:///c:/Users/81802/test/used-car-comparison/backend/app/scrapers/carsensor.py)
+
+カーセンサー専用スクレイパー
+
+#### [NEW] [app/scrapers/goonet.py](file:///c:/Users/81802/test/used-car-comparison/backend/app/scrapers/goonet.py)
+
+Goo-net専用スクレイパー
+
+#### [NEW] [app/scrapers/gulliver.py](file:///c:/Users/81802/test/used-car-comparison/backend/app/scrapers/gulliver.py)
+
+ガリバー専用スクレイパー
+
+#### [NEW] [app/api/routes/search.py](file:///c:/Users/81802/test/used-car-comparison/backend/app/api/routes/search.py)
+
+検索APIエンドポイント：
+- \`POST /api/search\`: 3サイトから検索して結果を返す
+
+#### [NEW] [app/api/routes/watchlist.py](file:///c:/Users/81802/test/used-car-comparison/backend/app/api/routes/watchlist.py)
+
+検討リストAPIエンドポイント：
+- \`GET /api/watchlist\`: 検討リスト取得
+- \`POST /api/watchlist\`: 車を検討リストに追加
+- \`DELETE /api/watchlist/{id}\`: 検討リストから削除
+- \`PATCH /api/watchlist/{id}\`: メモを更新
+
+---
+
+### フロントエンド
+
+#### [NEW] [package.json](file:///c:/Users/81802/test/used-car-comparison/frontend/package.json)
+
+依存パッケージ：React, Vite, Tailwind CSS, Shadcn UI, Axios等
+
+#### [NEW] [vite.config.js](file:///c:/Users/81802/test/used-car-comparison/frontend/vite.config.js)
+
+Vite設定ファイル
+
+#### [NEW] [tailwind.config.js](file:///c:/Users/81802/test/used-car-comparison/frontend/tailwind.config.js)
+
+Tailwind CSS設定
+
+#### [NEW] [src/App.jsx](file:///c:/Users/81802/test/used-car-comparison/frontend/src/App.jsx)
+
+メインアプリケーションコンポーネント
+
+#### [NEW] [src/components/SearchForm.jsx](file:///c:/Users/81802/test/used-car-comparison/frontend/src/components/SearchForm.jsx)
+
+検索フォームコンポーネント：
+- 車種、予算、走行距離などのフィルター
+- 検索ボタン
+
+#### [NEW] [src/components/CarCard.jsx](file:///c:/Users/81802/test/used-car-comparison/frontend/src/components/CarCard.jsx)
+
+個別の車情報カード：
+- 画像、車種名、価格、走行距離、年式
+- 「検討リストに追加」ボタン
+- 出典サイトのバッジ
+
+#### [NEW] [src/components/ComparisonGrid.jsx](file:///c:/Users/81802/test/used-car-comparison/frontend/src/components/ComparisonGrid.jsx)
+
+検索結果を並べて表示するグリッド
+
+#### [NEW] [src/components/WatchList.jsx](file:///c:/Users/81802/test/used-car-comparison/frontend/src/components/WatchList.jsx)
+
+検討リスト表示コンポーネント：
+- 保存した車のリスト
+- メモ編集機能
+- 削除ボタン
+
+#### [NEW] [src/services/api.js](file:///c:/Users/81802/test/used-car-comparison/frontend/src/services/api.js)
+
+バックエンドAPIとの通信を行うAxiosクライアント
+
+---
+
+### データベース
+
+#### [NEW] [database/schema.sql](file:///c:/Users/81802/test/used-car-comparison/database/schema.sql)
+
+上記で設計したwatchlistテーブルのSQL定義
+
+---
+
+## 検証計画
+
+### 自動テスト
+
+#### 1. スクレイパーのユニットテスト
+
+\`\`\`bash
+# バックエンドディレクトリで実行
+cd backend
+pytest tests/test_scrapers.py -v
+\`\`\`
+
+**テスト内容**:
+- 各スクレイパーが正しくデータを取得できるか
+- データ正規化が正しく動作するか
+- エラーハンドリングが適切に機能するか
+
+#### 2. API統合テスト
+
+\`\`\`bash
+# FastAPIサーバーを起動
+cd backend
+uvicorn main:app --reload
+
+# 別ターミナルでテスト実行
+pytest tests/test_api.py -v
+\`\`\`
+
+**テスト内容**:
+- 検索エンドポイントが正しくレスポンスを返すか
+- 検討リストCRUD操作が正常に動作するか
+
+### 手動検証
+
+#### 1. スクレイピング動作確認
+
+1. バックエンドサーバーを起動
+   \`\`\`bash
+   cd backend
+   uvicorn main:app --reload
+   \`\`\`
+
+2. ブラウザまたはPostmanで以下をテスト：
+   - \`POST http://localhost:8000/api/search\` に \`{"query": "プリウス"}\` を送信
+   - 3サイトからデータが取得できることを確認
+   - レスポンスが正規化されていることを確認
+
+#### 2. フロントエンド動作確認
+
+1. フロントエンドサーバーを起動
+   \`\`\`bash
+   cd frontend
+   npm run dev
+   \`\`\`
+
+2. ブラウザで \`http://localhost:5173\` にアクセス
+
+3. 以下の操作を実行：
+   - 検索フォームに「プリウス」と入力して検索
+   - 検索結果が3サイト分混在して表示されることを確認
+   - 気になる車を「検討リストに追加」
+   - 検討リストページで追加した車が表示されることを確認
+   - メモを追加・編集できることを確認
+   - 検討リストから削除できることを確認
+
+#### 3. データベース確認
+
+Supabaseダッシュボードで以下を確認：
+1. \`watchlist\`テーブルにデータが正しく保存されているか
+2. タイムスタンプが自動的に記録されているか
+3. JSON形式のadditional_infoが正しく保存されているか
+
+#### 4. UI/UXレビュー
+
+- デザインがモダンで使いやすいか
+- レスポンシブデザインが機能しているか（モバイル/タブレット/デスクトップ）
+- ローディング状態が適切に表示されるか
+- エラーメッセージが分かりやすいか
+
+---
+
+## 次のステップ
+
+1. **この実装計画のレビュー**: スクレイピング対象サイト、技術スタック、DB設計について確認
+2. **Supabaseプロジェクトの準備**: アカウント作成とテーブル作成
+3. **段階的な実装開始**:
+   - フェーズ2: バックエンド開発
+   - フェーズ3: フロントエンド開発
+   - フェーズ4: 統合テストとデプロイ
