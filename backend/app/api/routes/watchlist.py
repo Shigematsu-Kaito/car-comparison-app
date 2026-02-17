@@ -13,13 +13,13 @@ async def get_watchlist(
     db: Client = Depends(get_db)
 ):
     """
-    ユーザーの検討リストを取得
+    Get user's watch list
     """
     try:
         response = db.table("watchlist").select("*").eq("user_id", user_id).execute()
         return response.data
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"取得エラー: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Fetch error: {str(e)}")
 
 
 @router.post("/watchlist/{user_id}", response_model=WatchListItem)
@@ -29,7 +29,7 @@ async def add_to_watchlist(
     db: Client = Depends(get_db)
 ):
     """
-    検討リストに追加
+    Add to watch list
     """
     try:
         data = {
@@ -40,7 +40,7 @@ async def add_to_watchlist(
         response = db.table("watchlist").insert(data).execute()
         return response.data[0]
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"追加エラー: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Add error: {str(e)}")
 
 
 @router.put("/watchlist/{item_id}", response_model=WatchListItem)
@@ -50,7 +50,7 @@ async def update_watchlist_item(
     db: Client = Depends(get_db)
 ):
     """
-    検討リストアイテムを更新
+    Update watch list item
     """
     try:
         data = {}
@@ -59,12 +59,12 @@ async def update_watchlist_item(
         
         response = db.table("watchlist").update(data).eq("id", item_id).execute()
         if not response.data:
-            raise HTTPException(status_code=404, detail="アイテムが見つかりません")
+            raise HTTPException(status_code=404, detail="Item not found")
         return response.data[0]
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"更新エラー: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Update error: {str(e)}")
 
 
 @router.delete("/watchlist/{item_id}")
@@ -73,14 +73,14 @@ async def delete_watchlist_item(
     db: Client = Depends(get_db)
 ):
     """
-    検討リストから削除
+    Delete from watch list
     """
     try:
         response = db.table("watchlist").delete().eq("id", item_id).execute()
         if not response.data:
-            raise HTTPException(status_code=404, detail="アイテムが見つかりません")
-        return {"message": "削除しました"}
+            raise HTTPException(status_code=404, detail="Item not found")
+        return {"message": "Deleted successfully"}
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"削除エラー: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Delete error: {str(e)}")

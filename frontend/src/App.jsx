@@ -29,26 +29,26 @@ function App() {
             {/* Header */}
             <header className="border-b">
                 <div className="container mx-auto px-4 py-4">
-                    <h1 className="text-2xl font-bold">中古車比較アプリ</h1>
+                    <h1 className="text-2xl font-bold">Used Car Comparison App</h1>
                     <nav className="flex gap-4 mt-4">
                         <button
                             onClick={() => setView('search')}
                             className={`px-4 py-2 rounded ${view === 'search' ? 'bg-primary text-primary-foreground' : 'bg-secondary'}`}
                         >
-                            検索
+                            Search
                         </button>
                         <button
                             onClick={() => setView('comparison')}
                             className={`px-4 py-2 rounded ${view === 'comparison' ? 'bg-primary text-primary-foreground' : 'bg-secondary'}`}
                             disabled={selectedCars.length === 0}
                         >
-                            比較 ({selectedCars.length})
+                            Compare ({selectedCars.length})
                         </button>
                         <button
                             onClick={() => setView('watchlist')}
                             className={`px-4 py-2 rounded ${view === 'watchlist' ? 'bg-primary text-primary-foreground' : 'bg-secondary'}`}
                         >
-                            検討リスト ({watchList.length})
+                            Watch List ({watchList.length})
                         </button>
                     </nav>
                 </div>
@@ -62,7 +62,7 @@ function App() {
 
                         {error && (
                             <div className="mt-4 p-4 bg-destructive/10 text-destructive rounded">
-                                エラー: {error}
+                                Error: {error}
                             </div>
                         )}
 

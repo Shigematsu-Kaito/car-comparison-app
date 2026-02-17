@@ -15,24 +15,24 @@ async def search_cars(
     db: Client = Depends(get_db)
 ):
     """
-    中古車を検索
+    Search used cars
     
-    - スクレイピングを実行して最新データを取得
-    - データベースに保存
-    - 検索条件に基づいてフィルタリング
+    - Execute scraping to get latest data
+    - Save to database
+    - Filter based on search criteria
     """
     try:
-        # スクレイピングサービスで情報を取得
+        # Get information from scraping service
         scraping_service = ScrapingService()
         cars = await scraping_service.scrape_all(query)
         
-        # データベースに保存
+        # Save to database
         car_service = CarService(db)
         saved_cars = await car_service.save_cars(cars)
         
         return saved_cars
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"検索エラー: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Search error: {str(e)}")
 
 
 @router.get("/cars", response_model=List[Car])
@@ -42,14 +42,14 @@ async def get_cars(
     db: Client = Depends(get_db)
 ):
     """
-    保存済みの中古車情報を取得
+    Get saved used car information
     """
     try:
         car_service = CarService(db)
         cars = await car_service.get_cars(skip=skip, limit=limit)
         return cars
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"取得エラー: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Fetch error: {str(e)}")
 
 
 @router.get("/cars/{car_id}", response_model=Car)
@@ -58,13 +58,13 @@ async def get_car(
     db: Client = Depends(get_db)
 ):
     """
-    特定の中古車情報を取得
+    Get specific used car information
     """
     try:
         car_service = CarService(db)
         car = await car_service.get_car(car_id)
         if not car:
-            raise HTTPException(status_code=404, detail="車が見つかりません")
+            raise HTTPException(status_code=404, detail="Car not found")
         return car
     except HTTPException:
         raise

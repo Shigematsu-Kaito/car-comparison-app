@@ -5,11 +5,11 @@ from app.api.routes import search, watchlist
 
 app = FastAPI(
     title=settings.APP_NAME,
-    description="中古車比較アプリケーションAPI",
+    description="Used Car Comparison Application API",
     version="1.0.0"
 )
 
-# CORS設定
+# CORS configuration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
@@ -18,18 +18,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ルーター登録
+# Register routers
 app.include_router(search.router, prefix="/api", tags=["search"])
 app.include_router(watchlist.router, prefix="/api", tags=["watchlist"])
 
 
 @app.get("/")
 async def root():
-    """ヘルスチェック"""
-    return {"status": "ok", "message": "中古車比較API稼働中"}
+    """Health check"""
+    return {"status": "ok", "message": "Used Car Comparison API is running"}
 
 
 @app.get("/health")
 async def health():
-    """ヘルスチェック"""
+    """Health check"""
     return {"status": "healthy"}
